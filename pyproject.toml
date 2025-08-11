@@ -1,0 +1,38 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    "setuptools-git-versioning",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcpMQTT-tspspi"
+version = "0.1.0"
+description = "An MCP server for MQTT operations."
+authors = [
+    { name = "tspspi", email = "your-email@example.com" }
+]
+license = { text = "BSD-3-Clause" }
+readme = "README.md"
+dependencies = [
+    "paho-mqtt >= 1.6.1",
+    "mcp >= 1.0.0",
+    "pydantic > 2.5.0"
+]
+
+[metadata]
+license-files = "LICENSE.md"
+
+[project.urls]
+Homepage = "https://github.com/tspspi/mcpMQTT"
+
+[project.scripts]
+mcpMQTT = "mcpMQTT.app.mcp_server:run_mcp_server"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mcpMQTT*"]
+
+[tool.setuptools-git-versioning]
+enabled = true

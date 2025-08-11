@@ -1,0 +1,30 @@
+{
+  "mqtt": {
+    "host": "localhost",
+    "port": 1883,
+    "username": null,
+    "password": null,
+    "keepalive": 60
+  },
+  "topics": [
+    {
+      "pattern": "sensors/+/temperature",
+      "permissions": ["read", "write"],
+      "description": "Temperature sensor data from any location"
+    },
+    {
+      "pattern": "actuators/#",
+      "permissions": ["write"],
+      "description": "All actuator control topics"
+    },
+    {
+      "pattern": "status/system",
+      "permissions": ["read"],
+      "description": "System status information"
+    }
+  ],
+  "logging": {
+    "level": "INFO",
+    "logfile": "/var/log/mcpmqtt/server.log"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "mqtt": {
+    "host": "localhost",
+    "port": 1883,
+    "username": null,
+    "password": null,
+    "keepalive": 60
+  },
+  "topics": [
+    {
+      "pattern": "sensors/+/temperature",
+      "permissions": ["read", "write"],
+      "description": "Temperature sensor data from any location (+ matches single level like 'room1', 'room2')"
+    },
+    {
+      "pattern": "sensors/+/humidity",
+      "permissions": ["read", "write"],
+      "description": "Humidity sensor data from any location"
+    },
+    {
+      "pattern": "actuators/#",
+      "permissions": ["write"],
+      "description": "All actuator control topics (# matches multiple levels like 'lights/room1/brightness')"
+    },
+    {
+      "pattern": "status/system",
+      "permissions": ["read"],
+      "description": "System status information - exact topic match"
+    },
+    {
+      "pattern": "commands/+/request",
+      "permissions": ["write"],
+      "description": "Command request topics for request/response patterns"
+    },
+    {
+      "pattern": "commands/+/response",
+      "permissions": ["read"],
+      "description": "Command response topics for request/response patterns"
+    },
+    {
+      "pattern": "logs/#",
+      "permissions": ["read"],
+      "description": "Application log topics - read-only access"
+    },
+    {
+      "pattern": "test/+",
+      "permissions": ["read", "write"],
+      "description": "Test topics for development and debugging"
+    }
+  ],
+  "logging": {
+    "level": "INFO",
+    "logfile": null
+  }
+}

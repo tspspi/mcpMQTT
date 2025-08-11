@@ -1,0 +1,5 @@
+MCPSDK_DOCUMENTATION.md
+LOGGING_USAGE.md
+INSTALL_NOTES.md
+*.swp
+*.egg-info
