@@ -34,7 +34,9 @@ An MCP (Model Context Protocol) server that provides MQTT operations to LLM agen
 
 ## Installation
 
-TODO (As soon as we are on PyPi)
+```
+pip install mcpMQTT
+```
 
 ## Configuration
 
