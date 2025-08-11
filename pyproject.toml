@@ -8,13 +8,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpMQTT"
-version = "0.1.0"
+# version = "0.0.1"
+dynamic=["version"]
 requires-python = ">= 3.11"
 description = "An MCP server for basic MQTT operations"
 authors = [
     { name = "Thomas Spielauer", email = "pypipackages01@tspi.at" }
 ]
-license = { text = "BSD-3-Clause" }
 readme = "README.md"
 dependencies = [
     "paho-mqtt >= 1.6.1",
@@ -23,6 +23,7 @@ dependencies = [
 ]
 
 [metadata]
+license = "BSD-3-Clause"
 license-files = "LICENSE.md"
 
 [project.urls]
