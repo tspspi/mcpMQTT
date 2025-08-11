@@ -155,6 +155,7 @@ Publish messages to MQTT topics.
 #### `mqtt_subscribe`
 
 Subscribe to topics and collect messages.
+
 ```json
 {
   "topic": "sensors/+/temperature",
@@ -165,7 +166,19 @@ Subscribe to topics and collect messages.
 
 #### `mqtt_read`
 
+Subscribe to a topic and wait for a single message.
+
+```json
+{
+  "topic" : "sensors/+/temperature",
+  "timeout" : 5
+}
+```
+
+#### `mqtt_query`
+
 Request/response pattern for MQTT communication.
+
 ```json
 {
   "request_topic": "commands/room1/request",
