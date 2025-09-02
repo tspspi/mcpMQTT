@@ -212,14 +212,11 @@ mcpMQTT/
 │   └── mqtt_client.py       # Enhanced MQTT client manager
 ├── config/
 │   ├── config_manager.py    # Configuration loading and validation
-│   ├── schema.py           # Pydantic models and validation
-│   ├── example_config.json # Example configuration file
-│   └── example_with_logging.json # Example with logging configuration
+│   └─── schema.py           # Pydantic models and validation
 ├── examples/
 │   ├── example_config.json        # Basic configuration example
 │   └── example_with_logging.json  # Configuration with file logging
 ├── pyproject.toml
-├── LOGGING_USAGE.md        # Detailed logging documentation
 └── README.md
 ```
 
