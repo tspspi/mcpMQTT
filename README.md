@@ -2,40 +2,18 @@
 
 An MCP (Model Context Protocol) server that provides MQTT operations to LLM agent pipelines through a discoverable interface. The server supports fine-grained topic permissions with wildcard matching and provides comprehensive MQTT functionality for MCP clients.
 
-## Features
-
-- **MCP Server Interface**: MCP server implementation for MQTT operations
-- **Topic Permissions**: Fine-grained read/write permissions with MQTT wildcard support (`+` and `#`)
-- **Authentication**: MQTT broker authentication support
-- **Discoverable**: MCP resources for topic discovery and examples
-- **Configurable**: JSON-based configuration with schema validation
-- **Async Support**: Full async/await support for non-blocking operations
-
-## Architecture
-
-```
-┌─────────────────┐    ┌──────────────────────────────────┐
-│   MCP Client    │    │         mcpMQTT Application      │
-│                 │    │                                  │
-│  ┌───────────┐  │    │  ┌─────────────┐                 │
-│  │   Agent   │  │◄──►│  │ MCP Server  │                 │
-│  └───────────┘  │    │  └─────────────┘                 │
-└─────────────────┘    │         │                        │
-                       │  ┌─────────────────────────────┐ │
-┌─────────────────┐    │  │   Topic Permission Manager  │ │
-│  MQTT Broker    │◄──►│  └─────────────────────────────┘ │
-└─────────────────┘    │         │                        │
-                       │  ┌─────────────┐                 │
-                       │  │ MQTT Client │                 │
-                       │  │  Manager    │                 │
-                       │  └─────────────┘                 │
-                       └──────────────────────────────────┘
-```
+The MCP MQTT server allows operation in `stdio` mode as well as HTTP streamable remote operation via Unix domain sockets (recommended) or TCP/IP.
 
 ## Installation
 
 ```
 pip install mcpMQTT
+```
+
+To run the remote HTTP/UDS server, install the optional FastAPI/uvicorn extras:
+
+```
+pip install "mcpMQTT[remote]"
 ```
 
 ## Configuration
@@ -88,15 +66,32 @@ Create a configuration file at `~/.config/mcpmqtt/config.json` or specify a cust
   "logging": {
     "level": "INFO",
     "logfile": null
+  },
+  "remote_server": {
+    "api_key": "replace-me",
+    "uds": "/var/run/mcpmqtt.sock",
+    "host": "0.0.0.0",
+    "port": null
   }
 }
 ```
+
+Note that the API key is entered in plain text in this implementation, this will be fixed soon.
 
 ### Configuration Sections
 
 - **`mqtt`**: MQTT broker connection settings
 - **`topics`**: Topic patterns with permissions and descriptions
 - **`logging`**: Application logging level
+- **`remote_server`** *(optional when using stdio transport)*: Remote FastAPI settings, including the shared `api_key` plus bind configuration. Leaving `port` as `null` keeps the Unix domain socket default (`/var/run/mcpmqtt.sock`). Setting a TCP `port` automatically switches to TCP mode and `host` defaults to `0.0.0.0` if omitted.
+
+### Remote Server Settings
+
+- **Authentication**: The API key must accompany every MCP call via `Authorization: Bearer <key>`, `X-API-Key: <key>`, or `?api_key=<key>`. The `/status` endpoint intentionally skips authentication so external health probes can call it.
+- **Binding**: Unix domain sockets are used by default (`/var/run/mcpmqtt.sock`). Provide a TCP `port` (and optionally `host`) to listen on TCP instead; the host defaults to all interfaces.
+- **Mount path**: The FastMCP Starlette application is mounted at `/mcp`
+- **Status endpoint**: `GET /status` returns `{ "running": true, "mqtt_connected": <bool> }`, exposing reachability and MQTT connectivity.
+- **Dependencies**: Install FastAPI/uvicorn extras when using remote mode: `pip install "mcpMQTT[remote]"`.
 
 ### Topic Patterns and Permissions
 
@@ -124,18 +119,16 @@ Create a configuration file at `~/.config/mcpmqtt/config.json` or specify a cust
 mcpMQTT
 ```
 
-**Or using the module directly:**
+**Remote HTTP/UDS mode:**
 
 ```bash
-python -m mcpMQTT.app.mcp_server
+mcpMQTT --transport remotehttp
 ```
 
 **With custom configuration:**
 
 ```bash
 mcpMQTT --config /path/to/config.json --log-level DEBUG
-# or
-python -m mcpMQTT.app.mcp_server --config /path/to/config.json --log-level DEBUG
 ```
 
 ### MCP Tools
@@ -200,29 +193,10 @@ Get allowed topic patterns with permissions and descriptions.
 
 Get examples of how to use topic patterns with wildcards.
 
-## Development
-
-### Project Structure
-
-```
-mcpMQTT/
-├── app/
-│   ├── __init__.py
-│   ├── mcp_server.py        # MCP server implementation and entry point
-│   └── mqtt_client.py       # Enhanced MQTT client manager
-├── config/
-│   ├── config_manager.py    # Configuration loading and validation
-│   └─── schema.py           # Pydantic models and validation
-├── examples/
-│   ├── example_config.json        # Basic configuration example
-│   └── example_with_logging.json  # Configuration with file logging
-├── pyproject.toml
-└── README.md
-```
-
-### Configuration Examples
+## Configuration Examples
 
 For detailed configuration examples, see the [`examples/`](examples/) folder:
+
 - [`example_config.json`](examples/example_config.json) - Basic configuration with multiple topic patterns
 - [`example_with_logging.json`](examples/example_with_logging.json) - Configuration with file logging enabled
 

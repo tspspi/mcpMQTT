@@ -1,7 +1,7 @@
 """Configuration schema definitions using Pydantic for validation."""
 
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, root_validator
 import re
 
 
@@ -64,11 +64,56 @@ class LoggingConfig(BaseModel):
     )
 
 
+class RemoteServerConfig(BaseModel):
+    """Remote HTTP/UDS server configuration."""
+
+    api_key: str = Field(description="Shared secret required for remote MCP access")
+    host: str = Field(
+        default="0.0.0.0",
+        description="Host/IP to bind when using TCP (ignored when port is not set)"
+    )
+    port: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=65535,
+        description="TCP port for remote MCP access"
+    )
+    uds: str = Field(
+        default="/var/run/mcpmqtt.sock",
+        description="Unix domain socket path used when TCP is not configured"
+    )
+
+    @validator('api_key')
+    def validate_api_key_present(cls, v):
+        if not v:
+            raise ValueError("API key must be provided for remote server access")
+        return v
+
+    @validator('uds')
+    def validate_uds_path(cls, v):
+        if not v:
+            raise ValueError("UDS path cannot be empty")
+        return v
+
+    # root validator defaults host when TCP port is configured
+    @root_validator(skip_on_failure=True)
+    def validate_tcp_settings(cls, values):
+        port = values.get('port')
+        host = values.get('host')
+        if port is not None and not host:
+            values['host'] = "0.0.0.0"
+        return values
+
+
 class Config(BaseModel):
     """Main application configuration."""
     mqtt: MQTTConfig = Field(default_factory=MQTTConfig)
     topics: List[TopicConfig] = Field(default_factory=list, description="Allowed topic patterns")
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    remote_server: Optional[RemoteServerConfig] = Field(
+        default=None,
+        description="Remote MCP server transport settings"
+    )
 
     @validator('topics')
     def validate_topics_not_empty(cls, v):

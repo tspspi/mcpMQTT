@@ -12,6 +12,7 @@ from mcpMQTT.config.schema import Config, TopicConfig, MQTTConfig, LoggingConfig
 
 
 logger = logging.getLogger(__name__)
+_cached_config: Optional[Config] = None
 
 
 def setup_logging(logging_config: LoggingConfig):
@@ -115,18 +116,24 @@ def parse_arguments():
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                        help='Set the logging level')
     parser.add_argument('--logfile', type=str, help='Path to log file (appends to existing file)')
+    parser.add_argument('--transport', type=str, default='stdio',
+                       choices=['stdio', 'remotehttp'],
+                       help='Select MCP transport (stdio for local, remotehttp for FastAPI/uvicorn)')
     args = parser.parse_args()
     return args
 
 
-def get_config() -> Config:
+def get_config(parsed_args: Optional[argparse.Namespace] = None) -> Config:
     """
     Get configuration from command line arguments and file.
     
     Returns:
         Config: Validated configuration object
     """
-    args = parse_arguments()
+    global _cached_config
+    if _cached_config is not None:
+        return _cached_config
+    args = parsed_args or parse_arguments()
     
     # Load config first to get all settings
     config = load_config(args.config)
@@ -140,6 +147,7 @@ def get_config() -> Config:
     # Set up logging with final configuration
     setup_logging(config.logging)
     
+    _cached_config = config
     return config
 
 

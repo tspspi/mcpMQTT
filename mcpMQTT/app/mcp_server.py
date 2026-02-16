@@ -3,7 +3,9 @@
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
+import os
+import stat
+from contextlib import asynccontextmanager, AsyncExitStack
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -22,14 +24,15 @@ class MQTTAppContext:
     config: Config
 
 
-# Global reference to access configuration in resources
+# Global references for resources and health checks
 _current_config: Optional[Config] = None
+_current_mqtt_manager: Optional[MQTTClientManager] = None
 
 
 @asynccontextmanager
 async def mqtt_lifespan(server: FastMCP) -> AsyncIterator[MQTTAppContext]:
     """Manage MQTT connection lifecycle."""
-    global _current_config
+    global _current_config, _current_mqtt_manager
     
     # Get configuration (this should be passed in somehow)
     from mcpMQTT.config.config_manager import get_config
@@ -43,6 +46,7 @@ async def mqtt_lifespan(server: FastMCP) -> AsyncIterator[MQTTAppContext]:
     if not mqtt_manager.connect():
         raise ConnectionError("Failed to connect to MQTT broker")
     
+    _current_mqtt_manager = mqtt_manager
     logger.info("MCP MQTT Server initialized with MQTT connection")
     
     try:
@@ -51,6 +55,7 @@ async def mqtt_lifespan(server: FastMCP) -> AsyncIterator[MQTTAppContext]:
         # Cleanup on shutdown
         mqtt_manager.disconnect()
         _current_config = None
+        _current_mqtt_manager = None
         logger.info("MCP MQTT Server shutdown complete")
 
 
@@ -355,23 +360,146 @@ def get_topic_examples() -> str:
     return json.dumps(result, indent=2)
 
 
+def _build_remote_fastapi_app(config: Config):
+    """Create FastAPI application that wraps the MCP Starlette app."""
+    remote_config = config.remote_server
+    if remote_config is None:
+        raise RuntimeError("Remote transport selected but remote_server config is missing")
+
+    try:
+        # We do imports here so we do not require the packages to be installed when using just stdio mode
+        from fastapi import FastAPI, Request, HTTPException
+        from fastapi.responses import JSONResponse
+        from starlette.middleware.base import BaseHTTPMiddleware
+    except ImportError as exc:  # pragma: no cover - import guarded for stdio-only installs
+        raise RuntimeError(
+            "Remote HTTP transport requires FastAPI. Install optional extras: 'pip install mcpMQTT[remote]'"
+        ) from exc
+
+    API_KEY_QUERY_PARAM = "api_key"
+    STATUS_PATH = "/status"
+    MCP_MOUNT_PATH = "/mcp"
+
+    mcp_http_app = mcp.streamable_http_app()
+
+    @asynccontextmanager
+    async def fastapi_lifespan(app):
+        async with AsyncExitStack() as stack:
+            await stack.enter_async_context(mcp_http_app.router.lifespan_context(mcp_http_app))
+            yield
+
+    fastapi_app = FastAPI(title="mcpMQTT Remote Server", version="1.0", lifespan=fastapi_lifespan)
+
+    class APIKeyMiddleware(BaseHTTPMiddleware):
+        """Validate Bearer, X-API-Key, or api_key query tokens."""
+
+        def __init__(self, app):
+            super().__init__(app)
+            self._api_key = remote_config.api_key
+
+        async def dispatch(self, request: Request, call_next):
+            if request.url.path == STATUS_PATH:
+                return await call_next(request)
+
+            token = None
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ", 1)[1].strip()
+            if not token:
+                token = request.headers.get("x-api-key")
+            if not token:
+                token = request.query_params.get(API_KEY_QUERY_PARAM)
+            if token != self._api_key:
+                raise HTTPException(status_code=401, detail="Invalid or missing API key")
+            return await call_next(request)
+
+    fastapi_app.add_middleware(APIKeyMiddleware)
+
+    @fastapi_app.get(STATUS_PATH)
+    async def status():
+        """Unprotected health endpoint."""
+        mqtt_connected = bool(_current_mqtt_manager and _current_mqtt_manager.connected)
+        return JSONResponse({"running": True, "mqtt_connected": mqtt_connected})
+
+    fastapi_app.mount(MCP_MOUNT_PATH, mcp_http_app)
+    return fastapi_app
+
+
+def _prepare_uds_socket(path: str):
+    """Ensure the UDS path is ready for binding."""
+    directory = os.path.dirname(path)
+    if directory and not os.path.exists(directory):
+        try:
+            os.makedirs(directory, exist_ok=True)
+        except OSError as exc:
+            logger.warning(f"Could not create directory for UDS path {path}: {exc}")
+    if os.path.exists(path):
+        try:
+            current_stat = os.stat(path)
+            if stat.S_ISSOCK(current_stat.st_mode):
+                os.remove(path)
+            else:
+                raise RuntimeError(f"UDS path {path} exists and is not a socket")
+        except OSError as exc:
+            raise RuntimeError(f"Failed to prepare existing UDS path {path}: {exc}") from exc
+
+
+def _run_remote_transport(config: Config):
+    """Launch FastAPI/uvicorn server for remote MCP transport."""
+    remote_config = config.remote_server
+    if remote_config is None:
+        raise RuntimeError("remote_server configuration is required for remote transport")
+
+    app = _build_remote_fastapi_app(config)
+
+    try:
+        # We import here so one can use stdiomode without having uvicorn installed (its a rather heavy dependency)
+        import uvicorn
+    except ImportError as exc:  # pragma: no cover - guarded for stdio installs
+        raise RuntimeError(
+            "Remote HTTP transport requires uvicorn. Install optional extras: 'pip install mcpMQTT[remote]'"
+        ) from exc
+
+    uvicorn_kwargs: Dict[str, Any] = {
+        "app": app,
+        "lifespan": "on",
+        "log_config": None,
+    }
+
+    if remote_config.port is not None:
+        uvicorn_kwargs["host"] = remote_config.host or "0.0.0.0"
+        uvicorn_kwargs["port"] = remote_config.port
+        logger.info(
+            "Starting remote MCP server over TCP at %s:%s",
+            uvicorn_kwargs["host"],
+            uvicorn_kwargs["port"],
+        )
+    else:
+        uds_path = remote_config.uds
+        _prepare_uds_socket(uds_path)
+        uvicorn_kwargs["uds"] = uds_path
+        logger.info("Starting remote MCP server over UDS at %s", uds_path)
+
+    uvicorn.run(**uvicorn_kwargs)
+
+
 # Helper function to run the server (for compatibility with existing code)
 def run_mcp_server():
-    """Run the MCP server. Configuration is loaded automatically in the lifespan manager."""
-    # Handle help and other early-exit arguments before starting server
-    import sys
-    if '--help' in sys.argv or '-h' in sys.argv:
-        from mcpMQTT.config.config_manager import parse_arguments
-        parse_arguments()  # This will print help and exit cleanly
-        return
-    
+    """Run the MCP server over stdio (default) or remote HTTP."""
+    from mcpMQTT.config.config_manager import get_config, parse_arguments
+
+    args = parse_arguments()
+    config = get_config(args)
+
     try:
-        # Start the FastMCP server (this handles async context internally)
-        #mcp.run(transport="streamable-http")
-        mcp.run(
-            # transport="sse", mount_path="/mcp"
-            #transport="streamable-http"
-        )
+        if args.transport == 'remotehttp':
+            if not config.remote_server:
+                raise RuntimeError(
+                    "remotehttp transport selected but remote_server configuration block is missing"
+                )
+            _run_remote_transport(config)
+        else:
+            mcp.run()
     except KeyboardInterrupt:
         logger.info("MCP server shutting down...")
 
