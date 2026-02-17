@@ -1,18 +1,26 @@
 # Configuration management for the MCP server
 
-import json
-import os
 import argparse
+import json
 import logging
 import logging.handlers
+import os
 from typing import Optional
+
 from pydantic import ValidationError
 
+from mcpMQTT.config.api_keys import (
+    derive_argon2id_hash,
+    ensure_kdf_defaults,
+    ensure_kdf_salt,
+    generate_random_api_key,
+)
 from mcpMQTT.config.schema import Config, TopicConfig, MQTTConfig, LoggingConfig
 
 
 logger = logging.getLogger(__name__)
 _cached_config: Optional[Config] = None
+DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/mcpmqtt/config.json")
 
 
 def setup_logging(logging_config: LoggingConfig):
@@ -73,8 +81,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
         ValidationError: If configuration is invalid
         FileNotFoundError: If configuration file doesn't exist and no defaults work
     """
-    default_path = os.path.expanduser("~/.config/mcpmqtt/config.json")
-    path = config_path or default_path
+    path = config_path or DEFAULT_CONFIG_PATH
 
     # Try to load from file
     config_data = {}
@@ -119,6 +126,8 @@ def parse_arguments():
     parser.add_argument('--transport', type=str, default='stdio',
                        choices=['stdio', 'remotehttp'],
                        help='Select MCP transport (stdio for local, remotehttp for FastAPI/uvicorn)')
+    parser.add_argument('--genkey', action='store_true',
+                        help='Generate a new API key, store its Argon2id hash in the config, then exit')
     args = parser.parse_args()
     return args
 
@@ -183,7 +192,7 @@ def create_default_config_file(path: str):
         ],
         "logging": {
             "level": "INFO",
-            "logfile": null
+            "logfile": None
         }
     }
     
@@ -194,3 +203,44 @@ def create_default_config_file(path: str):
         json.dump(default_config, f, indent=2)
     
     logger.info(f"Default configuration file created at {path}")
+
+
+def generate_and_store_api_key(config_path: Optional[str] = None) -> str:
+    """Generate a new API key, derive its hash, and persist it to the config file."""
+    path = config_path or DEFAULT_CONFIG_PATH
+
+    try:
+        with open(path, 'r', encoding='utf-8') as config_file:
+            config_data = json.load(config_file)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"Configuration file not found at {path}. Provide --config or create one first."
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in configuration file {path}: {exc}") from exc
+
+    remote_server = config_data.get('remote_server')
+    if not remote_server:
+        raise ValueError("remote_server block must exist in configuration to generate an API key")
+
+    kdf_block = ensure_kdf_defaults(remote_server.get('api_key_kdf'))
+    ensure_kdf_salt(kdf_block)
+
+    new_key = generate_random_api_key()
+    kdf_block['hash'] = derive_argon2id_hash(new_key, kdf_block)
+    remote_server['api_key_kdf'] = kdf_block
+    remote_server.pop('api_key', None)
+    config_data['remote_server'] = remote_server
+
+    # Validate to ensure we did not break the configuration
+    Config(**config_data)
+
+    config_dir = os.path.dirname(path)
+    if config_dir:
+        os.makedirs(config_dir, exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as config_file:
+        json.dump(config_data, config_file, indent=2)
+        config_file.write('\n')
+
+    logger.info(f"Updated API key hash in {path}")
+    return new_key

@@ -19,7 +19,8 @@ readme = "README.md"
 dependencies = [
     "paho-mqtt >= 1.6.1",
     "mcp >= 1.0.0",
-    "pydantic > 2.5.0"
+    "pydantic > 2.5.0",
+    "argon2-cffi>=23.1.0"
 ]
 
 [project.optional-dependencies]

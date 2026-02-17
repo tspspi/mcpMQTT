@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 
+from mcpMQTT.config.api_keys import verify_api_key
 from mcpMQTT.config.schema import Config, validate_topic_permission
 from mcpMQTT.app.mqtt_client import MQTTClientManager
 
@@ -395,7 +396,7 @@ def _build_remote_fastapi_app(config: Config):
 
         def __init__(self, app):
             super().__init__(app)
-            self._api_key = remote_config.api_key
+            self._remote_config = remote_config
 
         async def dispatch(self, request: Request, call_next):
             if request.url.path == STATUS_PATH:
@@ -409,7 +410,7 @@ def _build_remote_fastapi_app(config: Config):
                 token = request.headers.get("x-api-key")
             if not token:
                 token = request.query_params.get(API_KEY_QUERY_PARAM)
-            if token != self._api_key:
+            if not verify_api_key(token, self._remote_config):
                 raise HTTPException(status_code=401, detail="Invalid or missing API key")
             return await call_next(request)
 
@@ -486,9 +487,19 @@ def _run_remote_transport(config: Config):
 # Helper function to run the server (for compatibility with existing code)
 def run_mcp_server():
     """Run the MCP server over stdio (default) or remote HTTP."""
-    from mcpMQTT.config.config_manager import get_config, parse_arguments
+    from mcpMQTT.config.config_manager import (
+        generate_and_store_api_key,
+        get_config,
+        parse_arguments,
+    )
 
     args = parse_arguments()
+
+    if getattr(args, 'genkey', False):
+        new_key = generate_and_store_api_key(args.config)
+        print(new_key)
+        return
+
     config = get_config(args)
 
     try:

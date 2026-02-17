@@ -1,8 +1,11 @@
 """Configuration schema definitions using Pydantic for validation."""
 
-from typing import List, Optional, Literal
-from pydantic import BaseModel, Field, validator, root_validator
+import base64
+import binascii
 import re
+from typing import List, Optional, Literal
+
+from pydantic import BaseModel, Field, validator, root_validator
 
 
 class MQTTConfig(BaseModel):
@@ -64,10 +67,41 @@ class LoggingConfig(BaseModel):
     )
 
 
+class APIKeyKDFConfig(BaseModel):
+    """Argon2id derived API key configuration."""
+
+    algorithm: Literal["argon2id"] = Field(
+        default="argon2id",
+        description="KDF algorithm used to derive the API key hash"
+    )
+    salt: str = Field(description="Base64-encoded salt for the API key KDF")
+    time_cost: int = Field(default=3, ge=1, description="Argon2 time cost parameter")
+    memory_cost: int = Field(default=65536, ge=8, description="Argon2 memory cost in KiB")
+    parallelism: int = Field(default=1, ge=1, description="Argon2 parallelism parameter")
+    hash_len: int = Field(default=32, ge=16, description="Length of the derived API key hash")
+    hash: str = Field(description="Base64-encoded Argon2id hash of the API key")
+
+    @validator('salt', 'hash')
+    def validate_base64(cls, v):
+        """Ensure the supplied value decodes from base64."""
+        try:
+            base64.b64decode(v, validate=True)
+        except binascii.Error as exc:  # pragma: no cover - validation guard
+            raise ValueError("Value must be valid base64") from exc
+        return v
+
+
 class RemoteServerConfig(BaseModel):
     """Remote HTTP/UDS server configuration."""
 
-    api_key: str = Field(description="Shared secret required for remote MCP access")
+    api_key_kdf: Optional[APIKeyKDFConfig] = Field(
+        default=None,
+        description="Configuration block containing the Argon2id protected API key"
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Deprecated plaintext shared secret for remote MCP access"
+    )
     host: str = Field(
         default="0.0.0.0",
         description="Host/IP to bind when using TCP (ignored when port is not set)"
@@ -85,6 +119,8 @@ class RemoteServerConfig(BaseModel):
 
     @validator('api_key')
     def validate_api_key_present(cls, v):
+        if v is None:
+            return v
         if not v:
             raise ValueError("API key must be provided for remote server access")
         return v
@@ -96,6 +132,12 @@ class RemoteServerConfig(BaseModel):
         return v
 
     # root validator defaults host when TCP port is configured
+    @root_validator(skip_on_failure=True)
+    def validate_presence(cls, values):
+        if not values.get('api_key') and not values.get('api_key_kdf'):
+            raise ValueError("remote_server configuration requires api_key_kdf or api_key")
+        return values
+
     @root_validator(skip_on_failure=True)
     def validate_tcp_settings(cls, values):
         port = values.get('port')

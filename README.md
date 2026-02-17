@@ -68,7 +68,15 @@ Create a configuration file at `~/.config/mcpmqtt/config.json` or specify a cust
     "logfile": null
   },
   "remote_server": {
-    "api_key": "replace-me",
+    "api_key_kdf": {
+      "algorithm": "argon2id",
+      "salt": "<base64-salt>",
+      "time_cost": 3,
+      "memory_cost": 65536,
+      "parallelism": 1,
+      "hash_len": 32,
+      "hash": "<base64-hash>"
+    },
     "uds": "/var/run/mcpmqtt.sock",
     "host": "0.0.0.0",
     "port": null
@@ -76,14 +84,14 @@ Create a configuration file at `~/.config/mcpmqtt/config.json` or specify a cust
 }
 ```
 
-Note that the API key is entered in plain text in this implementation, this will be fixed soon.
+Use `mcpMQTT --genkey` to populate the `api_key_kdf` block. The command prints the new API key exactly once to stdout so you can copy it into your secrets manager.
 
 ### Configuration Sections
 
 - **`mqtt`**: MQTT broker connection settings
 - **`topics`**: Topic patterns with permissions and descriptions
 - **`logging`**: Application logging level
-- **`remote_server`** *(optional when using stdio transport)*: Remote FastAPI settings, including the shared `api_key` plus bind configuration. Leaving `port` as `null` keeps the Unix domain socket default (`/var/run/mcpmqtt.sock`). Setting a TCP `port` automatically switches to TCP mode and `host` defaults to `0.0.0.0` if omitted.
+- **`remote_server`** *(optional when using stdio transport)*: Remote FastAPI settings, including the KDF protected API key (`api_key_kdf`) and the bind configuration. Leaving `port` as `null` keeps the Unix domain socket default (`/var/run/mcpmqtt.sock`). Setting a TCP `port` automatically switches to TCP mode and `host` defaults to `0.0.0.0` if omitted. The legacy plaintext `api_key` field still loads but should be replaced with the hashed format via `--genkey`.
 
 ### Remote Server Settings
 
@@ -129,6 +137,12 @@ mcpMQTT --transport remotehttp
 
 ```bash
 mcpMQTT --config /path/to/config.json --log-level DEBUG
+```
+
+**Generate a new remote API key (prints to STDOUT once):**
+
+```bash
+mcpMQTT --config /path/to/config.json --genkey
 ```
 
 ### MCP Tools
